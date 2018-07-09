@@ -40,6 +40,22 @@ class Asset(object):
         self.content_id = ""
 
 
+class AudioVideo(object):
+
+    PROGRAM_TYPES = [
+        "feature",
+        "trailer",
+        "episode",
+        "bonus",
+    ]
+
+    def __init__(self):
+        self.asset = Asset()
+        self.program_type = ""
+        self.dub = False
+
+
+
 class Text(object):
     """
     Stores information about text assets
@@ -256,12 +272,12 @@ class IdentifyMicrosoft(object):
 
                 return framerate, multiplier, drop
 
-    def read_assets(self):
+    def read_assets(self, mov, itt, scc, jpg, xml, unrecognized):
         """
         Identifies assets and creates objects accordingly
         :return:
         """
-        for m in self.mov:
+        for m in mov:
             if "AudioOnly" in m:
                 if "Feature" in m:
                     f = Asset()
@@ -435,6 +451,7 @@ class MmcController(object):
         "Google",
         "Microsoft",
     ]
+
     def __init__(self):
         self._platform = ""
         self.root_path = ""
@@ -447,6 +464,7 @@ class MmcController(object):
     def platform(self, pf):
         if pf not in self.PLATFORMS:
             raise ValueError("Invalid platform")
+
         self._platform = pf
 
     def search_directory(self):
