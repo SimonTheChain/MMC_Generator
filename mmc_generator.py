@@ -29,43 +29,30 @@ class Asset(object):
     """
     Stores information about assets
     """
+    ASSET_TYPES = {
+        "video": "vidtrackid",
+        "audio": "audtrackid",
+        "subs": "subtrackid",
+        "captions": "subtrackid",
+        "poster": "",
+        "metadata": "",
+    }
     LOCALES = {  # to complete
         "English": "en",
         "French": "fr",
     }
-
-    def __init__(self):
-        self.filename = ""
-        self.locale = ""
-        self.content_id = ""
-
-
-class AudioVideo(object):
-
     PROGRAM_TYPES = [
         "feature",
         "trailer",
         "episode",
         "bonus",
     ]
-
-    def __init__(self):
-        self.asset = Asset()
-        self.program_type = ""
-        self.dub = False
-
-
-
-class Text(object):
-    """
-    Stores information about text assets
-    """
-    TEXT_TYPE = {
+    TEXT_TYPES = {
         "Full": "normal",
         "Forced": "forced",
         "SDH": "SDH",
     }
-    FRAMERATE = {  # to complete
+    FRAMERATES = {  # to complete
         "23.98fps": {
             "multiplier": "1000/1001",
             "timecode": "NonDrop",
@@ -78,83 +65,43 @@ class Text(object):
     }
 
     def __init__(self):
-        self.asset = Asset()
-        self._extension = ""
+        self.filename = ""
+        self.asset_type = ""
+        self.locale = ""
+        self.provider = ""
+        self.vendor_id = ""
+        self.track_id = ""
+        self.program_type = ""
+
+        # video assets
+        self.dub = False
+
+        # text assets
         self.text_type = ""
         self.framerate = ""
 
-    @property
-    def extension(self):
-        return self._extension
-
-    @extension.setter
-    def extension(self, filename):
-        self._extension = os.path.splitext(filename)[1]
-
-
-class Poster(object):
-    """
-    Stores information about poster art assets
-    """
-
-    def __init__(self):
-        self.asset = Asset()
+        # poster art
         self.width = ""
         self.height = ""
-        self._encoding = ""
 
-    @property
-    def encoding(self):
-        return self._encoding
-
-    @encoding.setter
-    def encoding(self, filename):
-        self._encoding = os.path.splitext(filename)[1]
-
-
-class MetaGeneric(object):
-    """
-    Stores generic metadata information
-    """
-    PROVIDERS = {  # to complete
-        "eOne": "e1",
-        "Under the Milky Way": "utmw",
-    }
-
-    def __init__(self):
-        self.provider_id = ""
-
-
-class MetaFeature(object):
-    """
-    Stores feature metadata information
-    """
-    def __init__(self):
-        self.meta_generic = MetaGeneric()
-        self.feature_id = ""
-        self.movie_xml = Asset()
-        self.trailer_xml = []  # list of Asset instances
-
-
-class MetaEpisodic(object):
-    """
-    Stores episodic metadata information
-    """
-    def __init__(self):
-        self.meta_generic = MetaGeneric()
-        self.season_id = ""
-        self.episode_id = ""
-        self.series_xml = Asset()
-        self.season_xml = Asset()
-        self.episode_xml = Asset()
+    def create_presentation(self):
+        presentation = "md:{track}:org:{provider}:{vendor_id}:{video_type}.{asset}.{locale}".format(
+            track=self.ASSET_TYPES[self.asset_type],
+            provider=self.provider,
+            vendor_id=self.vendor_id,
+            video_type=self.program_type,
+            asset=self.asset_type,
+            locale=self.locale,
+        )
+        self.track_id = presentation
+        return self.track_id
 
 
 class FileFinder(object):
     """
     Searches for files and sorts them
     """
-    def __init__(self, root_path):
-        self.root_path = root_path
+    def __init__(self):
         self.files_found = []
         self.mov = []
         self.itt = []
@@ -162,16 +109,17 @@ class FileFinder(object):
         self.jpg = []
         self.xml = []
         self.unrecognized = []
+        self.identify_ms = IdentifyMicrosoft()
 
-    def find_files(self):
+    def find_files(self, path):
         """
         Searches for files in a given directory
         :return: list of files
         """
-        if not os.path.isdir(self.root_path):
+        if not os.path.isdir(path):
             raise ValueError("The root directory is invalid")
 
-        for root, dirs, files in os.walk(self.root_path):
+        for root, dirs, files in os.walk(path):
 
             for f in files:
                 self.files_found.append(f)
@@ -193,18 +141,18 @@ class FileFinder(object):
                 self.mov.append(mov)
 
             elif os.path.splitext(f)[1] == ".itt":
-                sub = Text()
-                sub.asset.filename = os.path.basename(f)
+                sub = Asset()
+                sub.filename = os.path.basename(f)
                 self.itt.append(sub)
 
             elif os.path.splitext(f)[1] == ".scc":
-                scc = Text()
-                scc.asset.filename = os.path.basename(f)
+                scc = Asset()
+                scc.filename = os.path.basename(f)
                 self.scc.append(scc)
 
             elif os.path.splitext(f)[1] == ".jpg":
-                poster = Poster()
-                poster.asset.filename = os.path.basename(f)
+                poster = Asset()
+                poster.filename = os.path.basename(f)
                 self.jpg.append(poster)
 
             elif os.path.splitext(f)[1] == ".xml":
@@ -228,7 +176,6 @@ class IdentifyMicrosoft(object):
     """docstring for IdentifyMicrosoft"""
 
     def __init__(self):
-        self.assets = []
         self.pattern_general = re.compile("^([^_]+)_[^_]+_([^_]+)_.+")
         self.pattern_locale = re.compile("(?:.+_){3,4}([a-z][a-z])(-[A-Z][A-Z])?(-419)?")
         
@@ -272,51 +219,53 @@ class IdentifyMicrosoft(object):
 
                 return framerate, multiplier, drop
 
-    def read_assets(self, mov, itt, scc, jpg, xml, unrecognized):
+    def read_mov(self, mov):
         """
-        Identifies assets and creates objects accordingly
+        Identifies *.mov assets and creates objects accordingly
         :return:
         """
-        for m in mov:
-            if "AudioOnly" in m:
-                if "Feature" in m:
-                    f = Asset()
-                    f.filename = m
-                    match_locale = self.pattern_locale.search(m)
-                    f.locale = self._cut_locale(match_locale)
+        if isinstance(mov, Asset):
+            match_general = self.pattern_general.search(mov.filename)
+            mov.provider = match_general.group(1)
+            mov.vendor_id = match_general.group(2)
+            match_locale = self.pattern_locale.search(mov.filename)
+            mov.locale = self._cut_locale(match_locale)
 
-                    self.feature_dubs[m] = self._cut_locale(match_locale)
+            if "AudioOnly" in mov:
+                if "Feature" in mov:
+                    mov.program_type = "feature"
+                    mov.dub = True
 
-                elif "Trailer" in m:
-                    match_locale = self.pattern_locale.search(m)
-                    self.trailer_dubs[m] = self._cut_locale(match_locale)
+                elif "Trailer" in mov:
+                    mov.program_type = "trailer"
+                    mov.dub = True
 
-            elif "Feature" in m:
-                match_general = self.pattern_general.search(m)
-                self.provider = match_general.group(1)
-                self.vendor_id = match_general.group(2)
-                match_locale = self.pattern_locale.search(m)
-                self.feature[m] = self._cut_locale(match_locale)
+            elif "Feature" in mov:
+                mov.program_type = "feature"
+                mov.dub = False
 
-            elif "Trailer" in m:
-                match_locale = self.pattern_locale.search(m)
-                self.trailer[m] = self._cut_locale(match_locale)
-
-            else:
-                pass  # to complete
-
-        for s in self.scc:
-            if "Feature" in s:
-                match_locale = self.pattern_locale.search(s)
-                self.feature_captions[s] = self._cut_locale(match_locale)
-
-            elif "Trailer" in s:
-                match_locale = self.pattern_locale.search(s)
-                self.trailer_captions[s] = self._cut_locale(match_locale)
+            elif "Trailer" in mov:
+                mov.program_type = "trailer"
+                mov.dub = False
 
             else:
                 pass  # to complete
 
+            return mov
+
+    def read_scc(self, scc):
+        if "Feature" in scc:
+            match_locale = self.pattern_locale.search(scc)
+            self.feature_captions[s] = self._cut_locale(match_locale)
+
+        elif "Trailer" in scc:
+            match_locale = self.pattern_locale.search(scc)
+            self.trailer_captions[s] = self._cut_locale(match_locale)
+
+        else:
+            pass  # to complete
+
+    def read_itt(self):
         for i in self.itt:
             if "Feature" in i and "Full" in i:
                 match_locale = self.pattern_locale.search(i)
@@ -356,40 +305,6 @@ class IdentifyMicrosoft(object):
                self.poster
 
 
-class Presentation(object):
-    ASSET_TYPES = {
-        "video": "vidtrackid",
-        "audio": "audtrackid",
-        "subs": "subtrackid",
-        "captions": "subtrackid",
-        "poster": "",
-        "metadata": "",
-    }
-    VIDEO_TYPES = [
-        "feature",
-        "trailer",
-    ]
-    def __init__(self, provider, vendor_id, asset_type, asset, locale):
-        self.provider = provider
-        self.vendor_id = vendor_id
-        self.asset_type = asset_type
-        self.asset = asset
-        self.locale = locale
-        self.presentation = ""
-
-    def create_presentation(self):
-        presentation = "md:{track}:org:{provider}:{vendor_id}:{video_type}.{asset}.{locale}".format(
-            track=self.ASSET_TYPES[self.asset_type],
-            provider=self.provider,
-            vendor_id=self.vendor_id,
-            video_type="feature",  # to change
-            asset=self.asset,
-            locale=self.locale,
-        )
-        self.presentation = presentation
-        return self.presentation
-
-
 class Experience(object):
     COUNTRIES = [
         "CA",
@@ -405,14 +320,12 @@ class CreateMmc(object):
     Creates the MMC xml
     """
     def __init__(self):
-        self.meta_feature = MetaFeature()
-        self.meta_episodic = MetaEpisodic()
-        self.file_finder = FileFinder()
         self.running = False
         self.output_path = ""
-        self.tracks = []
-        self.presentations = []
-        self.experiences = []
+        self.feature_id = ""
+        self.series_id = ""
+        self.season_id = ""
+        self.episode_id = ""
 
     @staticmethod
     def _root():
@@ -444,6 +357,28 @@ class CreateMmc(object):
 
         return inventory
 
+    def _feature_audio(self, nsmap, inventory, mov):
+        audio_comment = etree.Comment("Main audio file for the feature")
+        inventory.append(audio_comment)
+        self.presentation_audio_main = "md:audtrackid:org:{provider}:{vendor_id}:feature.audio.{locale}".format(
+            provider=mov.provider,
+            vendor_id=mov.vendor_id,
+            locale=mov.locale
+        )
+        xml_audio_main = etree.SubElement(
+            inventory,
+            "{%s}Audio" % nsmap["manifest"],
+            attrib={"AudioTrackID": self.presentation_audio_main})
+        xml_audio_type_main = etree.SubElement(xml_audio_main, "{%s}Type" % nsmap["md"])
+        xml_audio_type_main.text = "primary"
+        xml_audio_locale_main = etree.SubElement(xml_audio_main, "{%s}Language" % nsmap["md"])
+        xml_audio_locale_main.text = mov.locale
+        xml_audio_container_ref = etree.SubElement(xml_audio_main, "{%s}ContainerReference" % nsmap1["manifest"])
+        xml_audio_container_loc = etree.SubElement(
+            xml_audio_container_ref,
+            "{%s}ContainerLocation" % nsmap["manifest"])
+        xml_audio_container_loc.text = "file://resources/%s" % mov.filename
+
 
 class MmcController(object):
     PLATFORMS = [
@@ -454,7 +389,10 @@ class MmcController(object):
 
     def __init__(self):
         self._platform = ""
-        self.root_path = ""
+        self._root_path = ""
+        self.output_path = ""
+        self.file_finder = FileFinder()
+        self.mmc = CreateMmc()
 
     @property
     def platform(self):
@@ -467,20 +405,44 @@ class MmcController(object):
 
         self._platform = pf
 
+    @property
+    def root_path(self):
+        return self._root_path
+
+    @root_path.setter
+    def root_path(self, path):
+        if not os.path.isdir(path):
+            raise ValueError("Invalid package directory")
+
+        self._root_path = path
+
     def search_directory(self):
-        file_finder = FileFinder(root_path=self.root_path)
-        file_finder.find_files()
-        file_finder.sort_files()
+        self.file_finder.find_files(self.root_path)
+        self.file_finder.sort_files()
 
     def identify_files(self):
         if self.platform == "Microsoft":
             ms = IdentifyMicrosoft()
+            [
+                ms.read_mov(mov)
+                for mov in self.file_finder.mov
+            ]
+
+    def create_presentations(self):
+        for mov in self.file_finder.mov:
+            mov.track_id = mov.create_presentation()
+
+        for itt in self.file_finder.itt:
+            itt.track_id = itt.create_presentation()
+
+        for scc in self.file_finder.scc:
+            scc.track_id = scc.create_presentation()
+
+    def create_xml(self):
+        for mov in self.file_finder.mov:
+            if mov.asset_type == "video" and mov.program_type == "feature":
+                self.mmc.test(mov)
 
 
 def main():
-    mmc_obj = CreateMmc()
-    mmc_obj.meta_feature.meta_generic.provider = "E1"
-    mmc_obj.meta_feature.feature_id = "FEATUREID"
-
-
-
+    pass
